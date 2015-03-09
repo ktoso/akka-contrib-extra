@@ -99,15 +99,28 @@ abstract class Reconnector[T <: ConnectionStatus, D <: ReconnectionData[T]](init
 
     override def onPush(elem: A, ctx: Context[A]): Directive = ctx.push(elem)
 
+    override def onDownstreamFinish(ctx: Context[A]): TerminationDirective = {
+      if (data.retriesRemaining > 0) {
+        log.info("Connection to {} was closed, reconnecting! (retries remaining: {})", data.address, data.retriesRemaining - 1)
+        context.system.scheduler.scheduleOnce(data.interval, self, Reconnect)
+      } else {
+        log.warning("Connection to {} was closed. Abandoning reconnections as maxRetries exceeded.", data.address)
+      }
+
+      ctx.finish()
+    }
+
     override def onUpstreamFailure(cause: Throwable, ctx: Context[A]): TerminationDirective = {
       if (data.retriesRemaining > 0) {
-        log.info("Connection to {} was closed abruptly, reconnecting! (retries remaining: {})", data.address, data.retriesRemaining - 1)
+        log.info("Connection to {} was closed abruptly ({}), reconnecting! (retries remaining: {})", data.address, cause.getMessage, data.retriesRemaining - 1)
         context.system.scheduler.scheduleOnce(data.interval, self, Reconnect)
       } else {
         log.warning("Connection to {} was closed. Abandoning reconnections as maxRetries exceeded.", data.address)
       }
       ctx.finish()
     }
+
+    override def onUpstreamFinish(ctx: Context[A]): TerminationDirective = super.onUpstreamFinish(ctx)
   }
 
 }
